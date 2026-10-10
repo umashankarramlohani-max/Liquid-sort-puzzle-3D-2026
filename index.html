@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Liquid Sort Puzzle 3D - 500 Levels</title>
+  <!-- Google Fonts, Tailwind CSS & Canvas Confetti -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;700;800;900&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js"></script>
+
+  <style>
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    body {
+      font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: manipulation;
+      background-color: #07051a;
+      color: #ffffff;
+      margin: 0;
+      overflow: hidden;
+    }
+    h1, h2, h3, .font-display { font-family: 'Outfit', sans-serif; }
+    @keyframes dash { to { stroke-dashoffset: -24; } }
+    .animate-dash { animation: dash 1s linear infinite; }
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.6); }
+    ::-webkit-scrollbar-thumb { background: rgba(56, 189, 248, 0.4); border-radius: 9999px; }
+  </style>
+</head>
+<body class="h-screen w-screen flex flex-col">
+
+  <div id="app" class="h-full w-full relative flex flex-col overflow-hidden"></div>
+
+  <script>
+  /* ==========================================================================
+     1. GAME CONSTANTS & COLORS
+     ========================================================================== */
+  const LIQUID_COLORS = {
+    red:    { id: 'red',    name: 'Ruby Crimson',    primary: '#ef4444', light: '#f87171', dark: '#991b1b', glow: 'rgba(239, 68, 68, 0.5)' },
+    orange: { id: 'orange', name: 'Tangerine',       primary: '#f97316', light: '#fb923c', dark: '#9a3412', glow: 'rgba(249, 115, 22, 0.5)' },
+    yellow: { id: 'yellow', name: 'Solar Gold',       primary: '#eab308', light: '#fde047', dark: '#854d0e', glow: 'rgba(234, 179, 8, 0.5)' },
+    lime:   { id: 'lime',   name: 'Toxic Lime',       primary: '#84cc16', light: '#a3e635', dark: '#3f6212', glow: 'rgba(132, 204, 22, 0.5)' },
+    green:  { id: 'green',  name: 'Emerald Jade',     primary: '#10b981', light: '#34d399', dark: '#065f46', glow: 'rgba(16, 185, 129, 0.5)' },
+    teal:   { id: 'teal',   name: 'Deep Lagoon',     primary: '#14b8a6', light: '#2dd4bf', dark: '#115e59', glow: 'rgba(20, 184, 166, 0.5)' },
+    cyan:   { id: 'cyan',   name: 'Electric Cyan',   primary: '#06b6d4', light: '#22d3ee', dark: '#155e75', glow: 'rgba(6, 182, 212, 0.5)' },
+    blue:   { id: 'blue',   name: 'Cobalt Ocean',     primary: '#3b82f6', light: '#60a5fa', dark: '#1e40af', glow: 'rgba(59, 130, 246, 0.5)' },
+    indigo: { id: 'indigo', name: 'Nebula Indigo',   primary: '#6366f1', light: '#818cf8', dark: '#3730a3', glow: 'rgba(99, 102, 241, 0.5)' },
+    purple: { id: 'purple', name: 'Amethyst Violet', primary: '#8b5cf6', light: '#a78bfa', dark: '#5b21b6', glow: 'rgba(139, 92, 246, 0.5)' },
+    pink:   { id: 'pink',   name: 'Bubblegum Pink',  primary: '#ec4899', light: '#f472b6', dark: '#9d174d', glow: 'rgba(236, 72, 153, 0.5)' },
+    rose:   { id: 'rose',   name: 'Velvet Rose',     primary: '#f43f5e', light: '#fb7185', dark: '#9f1239', glow: 'rgba(244, 63, 94, 0.5)' },
+    amber:  { id: 'amber',  name: 'Warm Amber',      primary: '#d97706', light: '#fbbf24', dark: '#78350f', glow: 'rgba(217, 119, 6, 0.5)' },
+    slate:  { id: 'slate',  name: 'Quicksilver',     primary: '#64748b', light: '#94a3b8', dark: '#1e293b', glow: 'rgba(100, 116, 139, 0.5)' },
+  };
+
+  const ALL_COLOR_IDS = Object.keys(LIQUID_COLORS);
+
+  const CARD_GRADIENTS = [
+    'from-rose-500 to-red-600',
+    'from-amber-500 to-orange-600',
+    'from-sky-400 to-blue-600',
+    'from-purple-500 to-indigo-600',
+    'from-emerald-400 to-green-600',
+    'from-pink-500 to-rose-600',
+    'from-amber-400 to-yellow-600',
+    'from-cyan-400 to-teal-600',
+  ];
+
+  /* ==========================================================================
+     2. AUDIO SYNTHESIZER (Web Audio API)
+     ========================================================================== */
+  class SoundEngine {
+    constructor() { this.ctx = null; this.volume = 0.7; }
+    initCtx() {
+      if (!this.ctx) {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        this.ctx = new AudioCtx();
+      }
+      if (this.ctx.state === 'suspended') this.ctx.resume();
+      return this.ctx;
+    }
+    playSelect(pitch = 1.0) {
+      try {
+        const ctx = this.initCtx();
+        const now = ctx.currentTime;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(880 * pitch, now);
+        osc.frequency.exponentialRampToValueAtTime(1760 * pitch, now + 0.04);
+        gain.gain.setValueAtTime(this.volume * 0.28, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.start(now); osc.stop(now + 0.16);
+      } catch (e) {}
+    }
+    playDeselect() {
+      try {
+        const ctx = this.initCtx();
+        const now = ctx.currentTime;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(440, now);
+        osc.frequency.exponentialRampToValueAtTime(220, now + 0.08);
+        gain.gain.setValueAtTime(this.volume * 0.15, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.start(now); osc.stop(now + 0.09);
+      } catch (e) {}
+    }
+    playPour(targetLevel = 2) {
+      try {
+        const ctx = this.initCtx();
+        const now = ctx.currentTime;
+        const duration = 0.45;
+        const buffer = ctx.createBuffer(1, ctx.sampleRate * duration, ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+        const noise = ctx.createBufferSource();
+        noise.buffer = buffer;
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'bandpass';
+        const baseFreq = 450 + targetLevel * 180;
+        filter.frequency.setValueAtTime(baseFreq, now);
+        filter.frequency.exponentialRampToValueAtTime(baseFreq + 280, now + duration);
+        filter.Q.setValueAtTime(4.5, now);
+        const gain = ctx.createGain();
+        gain.gain.setValueAtTime(0.01, now);
+        gain.gain.linearRampToValueAtTime(this.volume * 0.2, now + 0.08);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+        noise.connect(filter); filter.connect(gain); gain.connect(ctx.destination);
+        noise.start(now); noise.stop(now + duration);
+      } catch (e) {}
+    }
+    playBottleComplete() {
+      try {
+        const ctx = this.initCtx();
+        const now = ctx.currentTime;
+        const popOsc = ctx.createOscillator();
+        const popGain = ctx.createGain();
+        popOsc.type = 'sine';
+        popOsc.frequency.setValueAtTime(280, now);
+        popOsc.frequency.exponentialRampToValueAtTime(140, now + 0.04);
+        popGain.gain.setValueAtTime(this.volume * 0.45, now);
+        popGain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
+        popOsc.connect(popGain); popGain.connect(ctx.destination);
+        popOsc.start(now); popOsc.stop(now + 0.05);
+
+        [587.33, 739.99, 880.0, 1174.66].forEach((freq, idx) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          const noteTime = now + 0.03 + idx * 0.06;
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(freq, noteTime);
+          gain.gain.setValueAtTime(this.volume * 0.22, noteTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, noteTime + 0.35);
+          osc.connect(gain); gain.connect(ctx.destination);
+          osc.start(noteTime); osc.stop(noteTime + 0.35);
+        });
+      } catch (e) {}
+    }
+    playVictory() {
+      try {
+        const ctx = this.initCtx();
+        const now = ctx.currentTime;
+        [523.25, 659.25, 783.99, 987.77, 1046.5].forEach((freq, idx) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          const startTime = now + idx * 0.09;
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(freq, startTime);
+          gain.gain.setValueAtTime(this.volume * 0.25, startTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.7);
+          osc.connect(gain); gain.connect(ctx.destination);
+          osc.start(startTime); osc.stop(startTime + 0.7);
+        });
+      } catch (e) {}
+    }
+    playInvalid() {
+      try {
+        const ctx = this.initCtx();
+        const now = ctx.currentTime;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(150, now);
+        osc.frequency.exponentialRampToValueAtTime(90, now + 0.09);
+        gain.gain.setValueAtTime(this.volume * 0.16, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.start(now); osc.stop(now + 0.1);
+      } catch (e) {}
+    }
+    playUndo() {
+      try {
+        const ctx = this.initCtx();
+        const now = ctx.currentTime;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(600, now);
+        osc.frequency.exponentialRampToValueAtTime(250, now + 0.15);
+        gain.gain.setValueAtTime(this.volume * 0.2, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.start(now); osc.stop(now + 0.16);
+      } catch (e) {}
+    }
+  }
+  const sounds = new SoundEngine();
+
+  /* ==========================================================================
+     3. DETERMINISTIC 500-LEVEL GENERATOR
+     ========================================================================== */
+  function mulberry32(seed) {
+    return function() {
+      let t = (seed += 0x6d2b79f5);
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  function generateLevel(levelNumber) {
+    if (levelNumber === 1) {
+      return {
+        levelNumber: 1,
+        tubes: [['blue', 'red', 'blue', 'red'], ['red', 'blue', 'red', 'blue'], []],
+        capacity: 4, minMoves: 4, parMoves: 5
+      };
+    }
+    if (levelNumber === 2) {
+      return {
+        levelNumber: 2,
+        tubes: [['yellow', 'green', 'yellow', 'green'], ['green', 'yellow', 'green', 'yellow'], []],
+        capacity: 4, minMoves: 4, parMoves: 5
+      };
+    }
+
+    const capacity = 4;
+    let colorCount = 3, emptyCount = 2, scrambleSteps = 18;
+    if (levelNumber <= 15) { colorCount = 3; emptyCount = 2; scrambleSteps = 16 + levelNumber; }
+    else if (levelNumber <= 35) { colorCount = 4; emptyCount = 2; scrambleSteps = 24 + levelNumber; }
+    else if (levelNumber <= 75) { colorCount = 5; emptyCount = 2; scrambleSteps = 35 + Math.floor(levelNumber * 0.4); }
+    else if (levelNumber <= 150) { colorCount = 6; emptyCount = 2; scrambleSteps = 50 + Math.floor(levelNumber * 0.3); }
+    else if (levelNumber <= 250) { colorCount = 7; emptyCount = 2; scrambleSteps = 65 + Math.floor(levelNumber * 0.25); }
+    else if (levelNumber <= 350) { colorCount = 8; emptyCount = 2; scrambleSteps = 80 + Math.floor(levelNumber * 0.2); }
+    else { colorCount = Math.min(10, 9 + Math.floor(levelNumber / 200)); emptyCount = 2; scrambleSteps = 95; }
+
+    const totalTubes = colorCount + emptyCount;
+    const rng = mulberry32(levelNumber * 7919 + 1337);
+
+    const shuffled = [...ALL_COLOR_IDS];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    const colors = shuffled.slice(0, colorCount);
+
+    const tubes = [];
+    for (let i = 0; i < colorCount; i++) tubes.push(Array(capacity).fill(colors[i]));
+    for (let i = 0; i < emptyCount; i++) tubes.push([]);
+
+    let lastFrom = -1, lastTo = -1;
+    for (let step = 0; step < scrambleSteps; step++) {
+      const validFroms = [];
+      for (let i = 0; i < totalTubes; i++) if (tubes[i].length > 0) validFroms.push(i);
+      if (validFroms.length === 0) break;
+      const fromIdx = validFroms[Math.floor(rng() * validFroms.length)];
+
+      const validTos = [];
+      for (let i = 0; i < totalTubes; i++) {
+        if (i !== fromIdx && tubes[i].length < capacity && !(fromIdx === lastTo && i === lastFrom)) {
+          validTos.push(i);
+        }
+      }
+      if (validTos.length === 0) continue;
+      const toIdx = validTos[Math.floor(rng() * validTos.length)];
+
+      const c = tubes[fromIdx].pop();
+      if (c) {
+        tubes[toIdx].push(c);
+        lastFrom = fromIdx;
+        lastTo = toIdx;
+      }
+    }
+
+    const estimatedMin = Math.max(6, Math.floor(colorCount * 3.5 + (levelNumber % 7)));
+    return {
+      levelNumber,
+      tubes,
+      capacity,
+      minMoves: estimatedMin,
+      parMoves: Math.ceil(estimatedMin * 1.35)
+    };
+  }
+
+  /* ==========================================================================
+     4. BFS SOLVER & HINT ENGINE
+     ========================================================================== */
+  function isSolved(tubes, capacity = 4) {
+    for (const t of tubes) {
+      if (t.length === 0) continue;
+      if (t.length !== capacity) return false;
+      const first = t[0];
+      if (!t.every(c => c === first)) return false;
+    }
+    return true;
+  }
+
+  function getPossibleMoves(tubes, capacity = 4) {
+    const moves = [];
+    const n = tubes.length;
+    for (let from = 0; from < n; from++) {
+      const src = tubes[from];
+      if (src.length === 0) continue;
+      if (src.length === capacity && src.every(c => c === src[0])) continue;
+
+      const topColor = src[src.length - 1];
+      let run = 0;
+      for (let i = src.length - 1; i >= 0; i--) {
+        if (src[i] === topColor) run++;
+        else break;
+      }
+
+      let emptyDone = false;
+      for (let to = 0; to < n; to++) {
+        if (from === to) continue;
+        const dst = tubes[to];
+        if (dst.length >= capacity) continue;
+        const space = capacity - dst.length;
+
+        if (dst.length === 0) {
+          if (src.length === run || emptyDone) continue;
+          emptyDone = true;
+          moves.push({ from, to, color: topColor, count: Math.min(run, space) });
+        } else if (dst[dst.length - 1] === topColor) {
+          moves.push({ from, to, color: topColor, count: Math.min(run, space) });
+        }
+      }
+    }
+    return moves;
+  }
+
+  function getNextHint(tubes, capacity = 4) {
+    const moves = getPossibleMoves(tubes, capacity);
+    if (moves.length === 0) return null;
+    moves.sort((a, b) => {
+      const dstA = tubes[a.to];
+      const dstB = tubes[b.to];
+      return (dstB.length + b.count === capacity ? 1 : 0) - (dstA.length + a.count === capacity ? 1 : 0);
+    });
+    return moves[0];
+  }
+
+  /* ==========================================================================
+     5. STATE & PERSISTENCE
+     ========================================================================== */
+  const state = {
+    screen: 'LEVEL_SELECT',
+    currentLevel: parseInt(localStorage.getItem('ls_cur_lvl') || '1', 10),
+    highestUnlocked: parseInt(localStorage.getItem('ls_high_unlocked') || '1', 10),
+    coins: parseInt(localStorage.getItem('ls_coins') || '12450', 10),
+    gems: parseInt(localStorage.getItem('ls_gems') || '320', 10),
+    progress: JSON.parse(localStorage.getItem('ls_progress') || '{}'),
+    levelData: null,
+    tubes: [],
+    history: [],
+    movesCount: 0,
+    timerSeconds: 0,
+    timerInterval: null,
+    selectedTube: null,
+    isPouring: false,
+    activeHint: null,
+    hintToast: null,
+    isVictory: false,
+  };
+
+  function saveStorage() {
+    localStorage.setItem('ls_cur_lvl', String(state.currentLevel));
+    localStorage.setItem('ls_high_unlocked', String(state.highestUnlocked));
+    localStorage.setItem('ls_coins', String(state.coins));
+    localStorage.setItem('ls_gems', String(state.gems));
+    localStorage.setItem('ls_progress', JSON.stringify(state.progress));
+  }
+
+  /* ==========================================================================
+     6. MAIN RENDER CONTROLLER
+     ========================================================================== */
+  const appEl = document.getElementById('app');
+
+  function render() {
+    if (state.screen === 'LEVEL_SELECT') {
+      renderLevelSelect();
+    } else {
+      renderGameplay();
+    }
+  }
+
+  /* ==========================================================================
+     7. SCREEN 1: LEVEL SCROLL GRID (Photo 1 Matching)
+     ========================================================================== */
+  function renderLevelSelect() {
+    const completedCount = Object.values(state.progress).filter(p => p.completed).length;
+    const pct = Math.round((completedCount / 500) * 100);
+
+    let cardsHtml = '';
+    for (let l = 1; l <= 500; l++) {
+      const isUnlocked = l <= state.highestUnlocked || l <= state.currentLevel;
+      const rec = state.progress[l];
+      const isDone = rec && rec.completed;
+      const stars = rec ? rec.stars : 0;
+      const grad = CARD_GRADIENTS[(l - 1) % CARD_GRADIENTS.length];
+
+      if (!isUnlocked) {
+        cardsHtml += `
+          <div class="relative flex flex-col items-center justify-between p-2 rounded-2xl bg-[#14172a]/80 border border-slate-800 aspect-[1/1.22] shadow-lg text-slate-500 opacity-60">
+            <div class="h-3"></div>
+            <div class="w-7 h-7 rounded-xl bg-slate-800/80 flex items-center justify-center text-slate-400">🔒</div>
+            <span class="text-[10px] font-black uppercase text-slate-500 font-display">LEVEL ${l}</span>
+          </div>
+        `;
+      } else {
+        const preview = generateLevel(l).tubes.find(t => t.length > 0) || ['blue', 'red', 'yellow', 'green'];
+        let miniLayers = '';
+        preview.forEach((color, idx) => {
+          const colDef = LIQUID_COLORS[color] || LIQUID_COLORS.blue;
+          const y = 56 - (idx + 1) * 10;
+          miniLayers += `<rect x="6" y="${y}" width="24" height="11" fill="${colDef.primary}" />`;
+        });
+
+        cardsHtml += `
+          <button onclick="startLevel(${l})" class="group relative flex flex-col items-center justify-between p-2 rounded-2xl bg-gradient-to-br ${grad} aspect-[1/1.22] shadow-lg active:scale-95 border border-white/20 transition-transform">
+            ${isDone ? `<div class="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-emerald-500 border-2 border-white flex items-center justify-center shadow text-white text-[11px] font-black">✓</div>` : ''}
+            
+            <div class="w-10 h-16 flex items-center justify-center mt-1">
+              <svg viewBox="0 0 36 64" class="w-full h-full overflow-visible">
+                <defs><clipPath id="mclip-${l}"><path d="M 10 10 L 26 10 L 26 52 Q 26 60 18 60 Q 10 60 10 52 Z" /></clipPath></defs>
+                <path d="M 10 10 L 26 10 L 26 52 Q 26 60 18 60 Q 10 60 10 52 Z" fill="rgba(255,255,255,0.15)" stroke="rgba(255,255,255,0.4)" stroke-width="1.2" />
+                <g clip-path="url(#mclip-${l})">${miniLayers}</g>
+                <path d="M 12 12 L 12 50" stroke="#ffffff" stroke-width="1" opacity="0.5" />
+                <polygon points="13,9 23,9 22,3 14,3" fill="#d97706" stroke="#78350f" stroke-width="0.8
